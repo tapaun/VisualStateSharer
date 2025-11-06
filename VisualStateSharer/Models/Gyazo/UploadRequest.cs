@@ -3,10 +3,10 @@ namespace VisualStateSharer.Models.Gyazo;
 /// <summary>
 /// Request for uploading an image to Gyazo
 /// </summary>
-public struct UploadRequest
-{
-    public string ImagePath { get; set; }
-    public string? Title { get; set; }
-    public string? Description { get; set; }
-    public long Timestamp { get; set; }
+public record UploadRequest
+{ 
+    public required string ImagePath { get; init; }
+    public string? Title { get; init; }
+    public string? Description { get; init; } = "Uploaded via VisualStateSharer";
+    public long Timestamp { get; init; }
 }

@@ -5,23 +5,23 @@ namespace VisualStateSharer.Models.Gyazo;
 /// <summary>
 /// Response from the Gyazo API after uploading an image
 /// </summary>
-public struct ImageInfo
+public record ImageInfo
 {
     [JsonPropertyName("image_id")]
-    public string ImageId { get; set; }
+    public required string ImageId { get; init; }
     
     [JsonPropertyName("permalink_url")]
-    public string PermalinkUrl { get; set; }
+    public required string PermalinkUrl { get; init; }
     
     [JsonPropertyName("thumb_url")]
-    public string ThumbUrl { get; set; }
+    public required string ThumbUrl { get; init; }
     
     [JsonPropertyName("url")]
-    public string Url { get; set; }
+    public required string Url { get; init; }
     
     [JsonPropertyName("type")]
-    public string Type { get; set; }
+    public required string Type { get; init; }
     
     [JsonPropertyName("created_at")]
-    public string CreatedAt { get; set; }
+    public required string CreatedAt { get; init; }
 }

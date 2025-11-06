@@ -1,95 +1,72 @@
-using System.Net.Http.Headers;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Refit;
 using VisualStateSharer.Core;
+using VisualStateSharer.Interfaces;
 using VisualStateSharer.Models.Gyazo;
-using VisualStateSharer.Utils;
 
 namespace VisualStateSharer.Api;
 
-public class GyazoApi(string baseUrl, string accessToken) : ApiClient(baseUrl, accessToken) {
+public class GyazoApi
+{
+    private readonly IGyazoApi _api;
+    private readonly string _accessToken;
+    private readonly ILogger<GyazoApi> _logger;
+
+    public GyazoApi(IGyazoApi api, string accessToken, ILogger<GyazoApi> logger)
+    {
+        _api = api;
+        _accessToken = accessToken;
+        _logger = logger;
+    }
+
     public async Task<ImageInfo> UploadImageAsync(UploadRequest request)
     {
-        Logger.Info($"Uploading image: {request.ImagePath}");
+        _logger.LogDebug($"Uploading image: {request.ImagePath}");
         
         if (!File.Exists(request.ImagePath))
         {
-            Logger.Error($"Image file not found: {request.ImagePath}");
+            _logger.LogError($"Image file not found: {request.ImagePath}");
             throw new FileNotFoundException($"Image file not found: {request.ImagePath}");
-        }
-
-        using var content = new MultipartFormDataContent();
-        
-        // Add access token
-        content.Add(new StringContent(ApiKey), "access_token");
-        
-        // Add image file
-        var imageBytes = await File.ReadAllBytesAsync(request.ImagePath);
-        var imageContent = new ByteArrayContent(imageBytes);
-        
-        // Detect image type from file extension
-        var extension = Path.GetExtension(request.ImagePath).ToLower();
-        var imageExtension = extension switch
-        {
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".gif" => "image/gif",
-            _ => "image/png"
-        };
-        
-        imageContent.Headers.ContentType = MediaTypeHeaderValue.Parse(imageExtension);
-        content.Add(imageContent, "imagedata", Path.GetFileName(request.ImagePath));
-        
-        // Add optional title
-        if (!string.IsNullOrWhiteSpace(request.Title))
-        {
-            content.Add(new StringContent(request.Title), "title");
-        }
-
-        // Add optional description
-        if (!string.IsNullOrWhiteSpace(request.Description))
-        {
-            content.Add(new StringContent(request.Description), "desc");
         }
 
         try
         {
-            var fullUrl = GetFullUrl("upload");
-            Logger.Debug($"Posting to: {fullUrl}");
+            // Read image file
+            var imageStream = File.OpenRead(request.ImagePath);
+            var fileName = Path.GetFileName(request.ImagePath);
             
-            using var client = new HttpClient();
-            var response = await client.PostAsync(fullUrl, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
-            
-            Logger.Debug($"Response status: {response.StatusCode}");
-            Logger.Debug($"Response body: {responseBody}");
-            
-            if (!response.IsSuccessStatusCode)
+            // Detect content type from file extension
+            var extension = Path.GetExtension(request.ImagePath).ToLower();
+            var contentType = extension switch
             {
-                Logger.Error($"Gyazo API error ({response.StatusCode}): {responseBody}");
-                throw new ApiException($"Gyazo API error ({response.StatusCode}): {responseBody}");
-            }
-            
-            JsonSerializerOptions options = new() {
-                PropertyNameCaseInsensitive = true,
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-                WriteIndented = true,
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                Converters = { new JsonStringEnumConverter() }
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".gif" => "image/gif",
+                _ => "image/png"
             };
-            var imageInfo = JsonSerializer.Deserialize<ImageInfo>(responseBody, options);
             
-            if (imageInfo.Equals(default(ImageInfo)))
-            {
-                throw new ApiException($"Failed to deserialize Gyazo response: {responseBody}");
-            }
+            var streamPart = new StreamPart(imageStream, fileName, contentType);
             
-            Logger.Info($"Image uploaded successfully: {imageInfo.PermalinkUrl}");
+            _logger.LogDebug($"Posting to Gyazo API");
+            
+            var imageInfo = await _api.RefitUploadImageAsync(
+                _accessToken,
+                streamPart,
+                request.Title,
+                request.Description
+            );
+            
+            _logger.LogInformation($"Image uploaded successfully: {imageInfo.PermalinkUrl}");
             return imageInfo;
+        }
+        catch (Core.ApiException ex)
+        {
+            _logger.LogError(ex, $"Failed to upload image: {request.ImagePath}");
+            throw new Core.ApiException($"Gyazo API error: {ex.Message}", ex);
         }
         catch (Exception ex)
         {
-            Logger.Error($"Failed to upload image: {request.ImagePath}", ex);
+            _logger.LogError(ex, $"Failed to upload image: {request.ImagePath}");
             throw;
         }
     }
@@ -104,7 +81,7 @@ public class GyazoApi(string baseUrl, string accessToken) : ApiClient(baseUrl, a
         var request = new UploadRequest
         {
             ImagePath = screenshotPath,
-            Title = $"Screenshot - {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+            Title = $"Screenshot - {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}",
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
         };
 

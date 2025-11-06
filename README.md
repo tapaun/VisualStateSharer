@@ -1,6 +1,6 @@
 # VisualStateSharer
 
-A .NET 9.0 library for sharing code and images to Pastebin and Gyazo.
+A modern .NET library for sharing code snippets and images to Pastebin and Gyazo using Refit and Dependency Injection.
 
 ## Features
 
@@ -8,140 +8,245 @@ A .NET 9.0 library for sharing code and images to Pastebin and Gyazo.
 - 🖼️ **GyazoApi** - Upload and share images
 - 🔒 **Privacy controls** - Public, unlisted, or private pastes
 - ⏱️ **Expiration settings** - Auto-delete after specified time
-- 📊 **Built-in logging** - Track uploads and errors
+- 🔧 **Refit-powered** - Clean, declarative HTTP API definitions
+- 💉 **Dependency Injection** - Proper DI setup with HttpClientFactory
+- 📊 **Built-in logging** - Track uploads and errors via ILogger
 - 🎯 **Auto-detection** - Automatically captures calling file with `[CallerFilePath]`
 
 ## Installation
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/tapaun/VisualStateSharer.git
-   ```
+### Via NuGet (when published)
+```bash
+dotnet add package VisualStateSharer
+```
 
-2. **Add project reference to your project:**
-   ```bash
-   cd /path/to/your/project
-   dotnet add reference /path/to/VisualStateSharer/VisualStateSharer/VisualStateSharer.csproj
-   ```
+### Via Project Reference
+```bash
+dotnet add reference path/to/VisualStateSharer/VisualStateSharer.csproj
+```
 
-   Or use a relative path if your project is nearby:
-   ```bash
-   dotnet add reference ../VisualStateSharer/VisualStateSharer/VisualStateSharer.csproj
-   ```
+## Setup
 
-## Quick Start
+### 1. Configure Environment Variables
 
-### Setup Environment Variables
-
-Create a `.env` file or set environment variables:
+Create a `.env` file or set system environment variables:
 
 ```env
 PASTEBIN_API_KEY=your_pastebin_api_key
 GYAZO_ACCESS_TOKEN=your_gyazo_access_token
 ```
 
-Get your API keys:
+**Get your API keys:**
 - **Pastebin**: https://pastebin.com/doc_api#1
-- **Gyazo**: https://gyazo.com/oauth/applications (Generate a personal access token)
+- **Gyazo**: https://gyazo.com/oauth/applications (Create application → Get access token)
 
-### PastebinApi Usage
+### 2. Register Services (ASP.NET Core / Generic Host)
 
 ```csharp
-using VisualStateSharer.Api;
-using VisualStateSharer.Models.Pastebin;
+using VisualStateSharer.Extensions;
 
-// Automatically share the current file
-var api = new PastebinApi("https://pastebin.com/api", apiKey);
-var response = await api.ShareCurrentCodeAsync(
-    privacy: PastePrivacy.Unlisted,
-    expiration: "1H"  // N, 10M, 1H, 1D, 1W, 2W, 1M, 6M, 1Y
-);
+var builder = WebApplication.CreateBuilder(args);
 
-Console.WriteLine($"Shared: {response.Url}");
+// Register VisualStateSharer services
+builder.Services.AddVisualStateSharer(builder.Configuration);
+
+var app = builder.Build();
+```
+
+### 3. Register Services (Console App)
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using VisualStateSharer.Extensions;
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((context, services) =>
+    {
+        services.AddVisualStateSharer(context.Configuration);
+    })
+    .Build();
+
+// Get services from DI container
+var pastebinApi = host.Services.GetRequiredService<PastebinApi>();
+var gyazoApi = host.Services.GetRequiredService<GyazoApi>();
+```
+
+## Usage
+
+### PastebinApi
+
+**Share current file automatically:**
+```csharp
+public class MyService
+{
+    private readonly PastebinApi _pastebinApi;
+    
+    public MyService(PastebinApi pastebinApi)
+    {
+        _pastebinApi = pastebinApi;
+    }
+    
+    public async Task ShareCode()
+    {
+        // CallerFilePath automatically captures this file
+        var response = await _pastebinApi.ShareCurrentCodeAsync(
+            privacy: PastePrivacy.Unlisted,
+            expiration: "1H"  // Options: N, 10M, 1H, 1D, 1W, 2W, 1M, 6M, 1Y
+        );
+        
+        Console.WriteLine($"Code shared: {response.Url}");
+    }
+}
 ```
 
 **Share specific file:**
-
 ```csharp
-var response = await api.ShareCurrentCodeAsync(
+var response = await pastebinApi.ShareCurrentCodeAsync(
     privacy: PastePrivacy.Private,
     expiration: "1D",
-    filePath: "/path/to/file.cs"
+    filePath: "/path/to/MyClass.cs"
 );
 ```
 
 **Share entire project:**
-
 ```csharp
-var responses = await api.ShareProjectAsync(
+var responses = await pastebinApi.ShareProjectAsync(
     projectPath: "./MyProject",
-    extensionsToInclude: new[] { ".cs", ".json", ".csproj" }
+    extensionsToInclude: new[] { ".cs", ".json", ".csproj" },
+    privacy: PastePrivacy.Unlisted,
+    expiration: "1W"
 );
+
+Console.WriteLine($"Shared {responses.Count} files");
 ```
 
-### GyazoApi Usage
-
+**Create custom paste:**
 ```csharp
-using VisualStateSharer.Api;
-using VisualStateSharer.Models.Gyazo;
-
-// Upload image (requires personal access token from Gyazo)
-var api = new GyazoApi("https://upload.gyazo.com/api", accessToken);
-var request = new UploadRequest
+var request = new PasteRequest
 {
-    ImagePath = "/path/to/image.png",
-    Title = "My Screenshot",
-    Description = "Optional description"
+    Content = "Console.WriteLine(\"Hello World\");",
+    Title = "Hello World Example",
+    Privacy = PastePrivacy.Public,
+    Expiration = "1M",
+    Format = "csharp"
 };
 
-var response = await api.UploadImageAsync(request);
-Console.WriteLine($"Uploaded: {response.PermalinkUrl}");
+var response = await pastebinApi.CreatePasteAsync(request);
 ```
 
-**Convenience method for screenshots:**
+### GyazoApi
 
+**Upload image:**
 ```csharp
-var response = await api.ShareScreenshotAsync("/path/to/screenshot.png");
+public class ImageService
+{
+    private readonly GyazoApi _gyazoApi;
+    
+    public ImageService(GyazoApi gyazoApi)
+    {
+        _gyazoApi = gyazoApi;
+    }
+    
+    public async Task UploadImage()
+    {
+        var request = new UploadRequest
+        {
+            ImagePath = "/path/to/screenshot.png",
+            Title = "My Screenshot",
+            Description = "Optional description",
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        };
+        
+        var response = await _gyazoApi.UploadAsync(request);
+        Console.WriteLine($"Image uploaded: {response.PermalinkUrl}");
+    }
+}
 ```
 
-## Privacy Options
-
+**Share screenshot:**
 ```csharp
-PastePrivacy.Public    // Searchable and listed
-PastePrivacy.Unlisted  // Accessible via URL only
-PastePrivacy.Private   // Requires login to view
+var response = await gyazoApi.ShareScreenshotAsync("/path/to/screenshot.png");
+Console.WriteLine($"Screenshot shared: {response.PermalinkUrl}");
 ```
 
-## Logging
+## Configuration
 
-Enable/disable logging:
+### appsettings.json (Optional)
 
-```csharp
-using VisualStateSharer.Utils;
-
-Logger.Enable();   // On by default
-Logger.Disable();  // Turn off logging
+```json
+{
+  "Pastebin": {
+    "BaseUrl": "https://pastebin.com/api",
+    "ApiKey": "your-key-here",
+    "Timeout": 30
+  },
+  "Gyazo": {
+    "BaseUrl": "https://upload.gyazo.com/api",
+    "ClientId": "your-client-id",
+    "ClientSecret": "your-client-secret",
+    "Timeout": 30
+  }
+}
 ```
+
+*Note: Currently, API keys are read from environment variables. Configuration binding is set up for future extensibility.*
+
+## Models
+
+### PastePrivacy
+- `Public` (0) - Visible to everyone
+- `Unlisted` (1) - Only accessible via URL
+- `Private` (2) - Only visible to you
+
+### Expiration Options
+- `N` - Never
+- `10M` - 10 Minutes
+- `1H` - 1 Hour
+- `1D` - 1 Day
+- `1W` - 1 Week
+- `2W` - 2 Weeks
+- `1M` - 1 Month
+- `6M` - 6 Months
+- `1Y` - 1 Year
 
 ## Architecture
 
+This library uses:
+- **Refit** - Type-safe HTTP client library
+- **HttpClientFactory** - Proper HttpClient management and pooling
+- **Microsoft.Extensions.DependencyInjection** - Standard .NET DI
+- **Microsoft.Extensions.Logging** - Integrated logging support
+
+## Error Handling
+
+All methods throw `ApiException` on failure:
+
+```csharp
+try
+{
+    var response = await pastebinApi.ShareCurrentCodeAsync();
+}
+catch (ApiException ex)
+{
+    Console.WriteLine($"API Error: {ex.Message}");
+}
+catch (FileNotFoundException ex)
+{
+    Console.WriteLine($"File not found: {ex.Message}");
+}
 ```
-VisualStateSharer/
-├── Api/              # API implementations
-├── Core/             # Base classes and config
-├── Models/           # Request/response models
-├── Interfaces/       # Service contracts
-└── Utils/            # Logger and JSON helpers
-```
+
+## Requirements
+
+- .NET 8.0 or .NET 9.0
+- Valid Pastebin API key
+- Valid Gyazo access token
 
 ## License
 
-MIT
+This project is licensed under the MIT License.
 
 ## Contributing
 
-Pull requests welcome! Please ensure your code follows the existing architecture.
-
----
-
-Made with ❤️ for developers who want to share their visual state quickly.
+Contributions are welcome! Please feel free to submit a Pull Request.

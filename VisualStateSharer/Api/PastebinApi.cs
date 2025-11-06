@@ -1,21 +1,32 @@
-using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
+using Refit;
 using VisualStateSharer.Core;
+using VisualStateSharer.Interfaces;
 using VisualStateSharer.Models.Pastebin;
-using VisualStateSharer.Utils;
 
 namespace VisualStateSharer.Api;
 
-public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, apiKey) {
-    private static readonly string CreatePasteEndpoint = ApiConfig.PastebinPostEndpoint;
+public class PastebinApi
+{
+    private readonly IPastebinApi _api;
+    private readonly string _apiKey;
+    private readonly ILogger<PastebinApi> _logger;
 
-    private async Task<PasteResponse> CreatePasteAsync(PasteRequest request)
+    public PastebinApi(IPastebinApi api, string apiKey, ILogger<PastebinApi> logger)
     {
-        Logger.Info($"Creating paste: {request.Title}");
+        _api = api;
+        _apiKey = apiKey;
+        _logger = logger;
+    }
+
+    public async Task<PasteResponse> CreatePasteAsync(PasteRequest request)
+    {
+        _logger.LogInformation($"Creating paste: {request.Title}");
         
-        var formData = new Dictionary<string, string?>
+        var formData = new Dictionary<string, string>
         {
-            { "api_dev_key", ApiKey },
+            { "api_dev_key", _apiKey },
             { "api_option", "paste" },
             { "api_paste_code", request.Content },
             { "api_paste_private", ((int)request.Privacy).ToString() },
@@ -26,35 +37,22 @@ public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, api
 
         try
         {
-            var content = new FormUrlEncodedContent(formData);
-            var fullUrl = GetFullUrl(CreatePasteEndpoint);
-            Logger.Debug($"Posting to: {fullUrl}");
+            _logger.LogDebug($"Posting to Pastebin API");
             
-            using var client = new HttpClient();
-            var response = await client.PostAsync(fullUrl, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
+            var responseUrl = await _api.RefitCreatePasteAsync(formData);
             
-            Logger.Debug($"Response status: {response.StatusCode}");
-            Logger.Debug($"Response body: {responseBody}");
-            
-            if (!response.IsSuccessStatusCode)
+            if (responseUrl.StartsWith("Bad API request"))
             {
-                Logger.Error($"Pastebin API error ({response.StatusCode}): {responseBody}");
-                throw new ApiException($"Pastebin API error ({response.StatusCode}): {responseBody}");
+                _logger.LogError($"Pastebin API error: {responseUrl}");
+                throw new Core.ApiException($"Pastebin API error: {responseUrl}");
             }
             
-            if (responseBody.StartsWith("Bad API request"))
-            {
-                Logger.Error($"Pastebin API error: {responseBody}");
-                throw new ApiException($"Pastebin API error: {responseBody}");
-            }
-            
-            Logger.Info($"Paste created successfully: {responseBody}");
-            return PasteResponse.FromUrl(responseBody);
+            _logger.LogInformation($"Paste created successfully: {responseUrl}");
+            return PasteResponse.FromUrl(responseUrl);
         }
-        catch (Exception ex)
+        catch (Core.ApiException ex)
         {
-            Logger.Error($"Failed to create paste: {request.Title}", ex);
+            _logger.LogError(ex, $"Failed to create paste: {request.Title}");
             throw;
         }
     }
@@ -63,10 +61,10 @@ public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, api
         string expiration = "1H",
         [CallerFilePath] string filePath = "")
     {
-        Logger.Debug($"ShareCurrentCodeAsync called from: {filePath}");
+        _logger.LogDebug($"ShareCurrentCodeAsync called from: {filePath}");
         
         if (!File.Exists(filePath)) {
-            Logger.Error($"Source file not found: {filePath}");
+            _logger.LogError($"Source file not found: {filePath}");
             throw new FileNotFoundException("The source code file could not be found.", filePath);
         }
         
@@ -87,35 +85,37 @@ public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, api
     }
     
     public async Task<List<PasteResponse>> ShareProjectAsync(string projectPath,
-        string[] extensionsToInclude = null,
+        string[]? extensionsToInclude = null,
         PastePrivacy privacy = PastePrivacy.Unlisted,
         string expiration = "1H")
     {
-        Logger.Info($"Sharing project from: {projectPath}");
+        _logger.LogInformation($"Sharing project from: {projectPath}");
         extensionsToInclude ??= [".cs", ".csproj", ".json"];
         
         var files = Directory.GetFiles(projectPath, "*.*", SearchOption.AllDirectories)
             .Where(f => extensionsToInclude.Contains(Path.GetExtension(f)))
             .ToList();
     
-        Logger.Info($"Found {files.Count} files to share");
+        _logger.LogInformation($"Found {files.Count} files to share");
         var responses = new List<PasteResponse>();
     
         foreach (var file in files)
         {
-            try
+            using (_logger.BeginScope("Sharing file {FileName}", file))
             {
-                // ReSharper disable once ExplicitCallerInfoArgument
-                var response = await ShareCurrentCodeAsync(privacy, expiration, file);
-                responses.Add(response);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Failed to share file {file}: {ex.Message}");
+                try
+                {
+                    var response = await ShareCurrentCodeAsync(privacy, expiration, file);
+                    responses.Add(response);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to share file");
+                }
             }
         }
     
-        Logger.Info($"Successfully shared {responses.Count} out of {files.Count} files");
+        _logger.LogInformation($"Successfully shared {responses.Count} out of {files.Count} files");
         return responses;
     }
 

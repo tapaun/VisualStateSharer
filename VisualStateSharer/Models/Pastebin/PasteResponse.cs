@@ -4,8 +4,8 @@ public class PasteResponse
 {
     public string Url { get; set; } = string.Empty;
     public string Key { get; set; } = string.Empty;
-    public DateTime CreatedAt { get; set; }
-        
+    public DateTimeOffset CreatedAt { get; set; }
+            
     public static PasteResponse FromUrl(string url)
     {
         var key = url.Split('/').Last();
@@ -13,7 +13,7 @@ public class PasteResponse
         { 
             Url = url, 
             Key = key,
-            CreatedAt = DateTime.UtcNow 
+            CreatedAt = DateTimeOffset.UtcNow 
         };
     }
 }
