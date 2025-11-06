@@ -13,7 +13,7 @@ public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, api
     {
         Logger.Info($"Creating paste: {request.Title}");
         
-        var formData = new Dictionary<string, string>
+        var formData = new Dictionary<string, string?>
         {
             { "api_dev_key", ApiKey },
             { "api_option", "paste" },
@@ -26,16 +26,31 @@ public class PastebinApi(string baseUrl, string apiKey) : ApiClient(baseUrl, api
 
         try
         {
-            var responseUrl = await PostFormAsync(CreatePasteEndpoint, formData);
+            var content = new FormUrlEncodedContent(formData);
+            var fullUrl = GetFullUrl(CreatePasteEndpoint);
+            Logger.Debug($"Posting to: {fullUrl}");
             
-            if (responseUrl.StartsWith("Bad API request"))
+            using var client = new HttpClient();
+            var response = await client.PostAsync(fullUrl, content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            
+            Logger.Debug($"Response status: {response.StatusCode}");
+            Logger.Debug($"Response body: {responseBody}");
+            
+            if (!response.IsSuccessStatusCode)
             {
-                Logger.Error($"Pastebin API error: {responseUrl}");
-                throw new ApiException($"Pastebin API error: {responseUrl}");
+                Logger.Error($"Pastebin API error ({response.StatusCode}): {responseBody}");
+                throw new ApiException($"Pastebin API error ({response.StatusCode}): {responseBody}");
             }
             
-            Logger.Info($"Paste created successfully: {responseUrl}");
-            return PasteResponse.FromUrl(responseUrl);
+            if (responseBody.StartsWith("Bad API request"))
+            {
+                Logger.Error($"Pastebin API error: {responseBody}");
+                throw new ApiException($"Pastebin API error: {responseBody}");
+            }
+            
+            Logger.Info($"Paste created successfully: {responseBody}");
+            return PasteResponse.FromUrl(responseBody);
         }
         catch (Exception ex)
         {

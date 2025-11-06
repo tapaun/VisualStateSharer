@@ -13,25 +13,36 @@ A .NET 9.0 library for sharing code and images to Pastebin and Gyazo.
 
 ## Installation
 
-```bash
-dotnet add package VisualStateSharer
-```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/tapaun/VisualStateSharer.git
+   ```
+
+2. **Add project reference to your project:**
+   ```bash
+   cd /path/to/your/project
+   dotnet add reference /path/to/VisualStateSharer/VisualStateSharer/VisualStateSharer.csproj
+   ```
+
+   Or use a relative path if your project is nearby:
+   ```bash
+   dotnet add reference ../VisualStateSharer/VisualStateSharer/VisualStateSharer.csproj
+   ```
 
 ## Quick Start
 
 ### Setup Environment Variables
 
-Create a `.env` file:
+Create a `.env` file or set environment variables:
 
 ```env
 PASTEBIN_API_KEY=your_pastebin_api_key
-GYAZO_CLIENT_ID=your_gyazo_client_id
-GYAZO_CLIENT_SECRET=your_gyazo_client_secret
+GYAZO_ACCESS_TOKEN=your_gyazo_access_token
 ```
 
 Get your API keys:
 - **Pastebin**: https://pastebin.com/doc_api#1
-- **Gyazo**: https://gyazo.com/oauth/applications
+- **Gyazo**: https://gyazo.com/oauth/applications (Generate a personal access token)
 
 ### PastebinApi Usage
 
@@ -40,7 +51,7 @@ using VisualStateSharer.Api;
 using VisualStateSharer.Models.Pastebin;
 
 // Automatically share the current file
-var api = new PastebinApi("https://pastebin.com/api/", apiKey);
+var api = new PastebinApi("https://pastebin.com/api", apiKey);
 var response = await api.ShareCurrentCodeAsync(
     privacy: PastePrivacy.Unlisted,
     expiration: "1H"  // N, 10M, 1H, 1D, 1W, 2W, 1M, 6M, 1Y
@@ -74,12 +85,8 @@ var responses = await api.ShareProjectAsync(
 using VisualStateSharer.Api;
 using VisualStateSharer.Models.Gyazo;
 
-// Get access token
-var auth = new GyazoAuth(clientId, clientSecret);
-var accessToken = await auth.GetAccessTokenAsync();
-
-// Upload image
-var api = new GyazoApi("https://upload.gyazo.com/api/", accessToken);
+// Upload image (requires personal access token from Gyazo)
+var api = new GyazoApi("https://upload.gyazo.com/api", accessToken);
 var request = new UploadRequest
 {
     ImagePath = "/path/to/image.png",
@@ -138,4 +145,3 @@ Pull requests welcome! Please ensure your code follows the existing architecture
 ---
 
 Made with ❤️ for developers who want to share their visual state quickly.
-
